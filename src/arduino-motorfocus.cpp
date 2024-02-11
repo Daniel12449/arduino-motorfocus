@@ -4,8 +4,13 @@
 #include <EEPROM.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <TimerOne.h>
 #include "DummySerial.h"
+
+#ifdef USE_XIAO_RP2040
+#include <RPi_Pico_TimerInterrupt.h>
+#else
+#include <TimerOne.h>
+#endif
 
 #define BTN_IN 7
 #define BTN_OUT 8
@@ -68,8 +73,15 @@ String line;
 
 // function declarations
 long hexstr2long(String line);
-static void intHandler();
 int readButtonSpeed();
+
+// Pi-Pico Timer init + function declaration
+#ifdef USE_XIAO_RP2040
+RPI_PICO_Timer Timer1(0);
+static bool intHandler(struct repeating_timer*);
+#else 
+static void intHandler();
+#endif
 
 /*************************************
  * SETUP
@@ -119,8 +131,12 @@ void setup()
   pinMode(BTN_POTI_SPEED, INPUT_PULLUP);
 
   // init timer
+  #ifdef USE_XIAO_RP2040
+  Timer1.attachInterruptInterval(PERIOD_US, intHandler);
+  #else
   Timer1.initialize(PERIOD_US);
   Timer1.attachInterrupt(intHandler);
+  #endif
 }
 
 /*************************************
@@ -480,6 +496,26 @@ long hexstr2long(String line)
   return strtol(buf, NULL, 16);
 }
 
+#ifdef USE_XIAO_RP2040
+
+static bool intHandler(struct repeating_timer *t)
+{
+  bool moving = false;
+  if (isInManualMode)
+  {
+    stepper.runSpeed();
+    moving = abs(stepper.speed()) > 0;
+  }
+  else
+  {
+    stepper.run();
+    moving = stepper.distanceToGo() != 0;
+  }
+
+  digitalWrite(LED_BUILTIN, moving);
+  return true;
+}
+#else
 static void intHandler()
 {
   bool moving = false;
@@ -496,6 +532,7 @@ static void intHandler()
 
   digitalWrite(LED_BUILTIN, moving);
 }
+#endif
 
 int readButtonSpeed()
 {
